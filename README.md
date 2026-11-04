@@ -34,6 +34,17 @@ Completed in this stage:
 ./mvnw spring-boot:run
 ```
 
+## Run with Docker
+
+Build the image and run the container with the application settings from `.env`:
+
+```bash
+docker build -t veylora .
+docker run --env-file .env -p 8080:8080 veylora
+```
+
+The container listens on port `8080`. Make sure `.env` includes the required application and database settings.
+
 ## Security baseline
 
 - Auth endpoints are public by default: `/api/v1/auth/login`, `/api/v1/auth/register`, `/api/v1/auth/csrf`.
