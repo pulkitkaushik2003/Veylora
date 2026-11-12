@@ -373,7 +373,7 @@ public class CampaignRunService {
                     toSend = new java.util.ArrayList<>(files);
                     toSend.add(own);
                 }
-                emailSender.send(recipient.getEmail(), subject, body, toSend);
+                emailSender.send(userId, recipient.getEmail(), subject, body, toSend);
                 emailMessageService.updateEmailStatus(userId, record.getId(), EmailMessage.EmailStatus.SENT, null, null);
                 applyOutcome(recipient, campaign, true, false, true, null);
             } catch (Exception e) {
@@ -459,9 +459,9 @@ public class CampaignRunService {
                             + ". Name each file like the person's email (rahul@x.com.pdf) and upload again, or remove those recipients.");
                 }
             }
-            if (!emailSender.isConfigured()) {
+            if (!emailSender.isConfigured(campaign.getUser().getId())) {
                 throw new IllegalStateException(
-                        "Email is not set up on the server. Set MAIL_HOST, MAIL_PORT, MAIL_USERNAME and MAIL_PASSWORD in .env and restart.");
+                        "Email is not set up. Add your email and app password in Settings (or set MAIL_HOST, MAIL_USERNAME, MAIL_PASSWORD in .env).");
             }
             campaign.setStatus(Campaign.CampaignStatus.RUNNING);
             if (campaign.getStartedAt() == null) campaign.setStartedAt(LocalDateTime.now());
