@@ -40,6 +40,15 @@ public class PersonalFileController {
                 .body(new PersonalFileService.UploadResult(added, replaced, skipped));
     }
 
+    /** The document list: which email gets which uploaded file name. Replaces any earlier list. */
+    @PutMapping("/mapping")
+    public PersonalFileService.MapResult saveMapping(@CurrentUserId Long userId, @PathVariable Long campaignId,
+                                                     @RequestBody MappingRequest request) {
+        return service.saveMapping(userId, campaignId, request.pairs());
+    }
+
+    public record MappingRequest(List<PersonalFileService.MapPair> pairs) {}
+
     @GetMapping
     public List<FileResponse> list(@CurrentUserId Long userId, @PathVariable Long campaignId) {
         return service.list(userId, campaignId).stream()

@@ -5,6 +5,8 @@ import com.example.veylora.Model.Campaign;
 import com.example.veylora.Model.CampaignRecipient;
 import com.example.veylora.Model.PersonalFile;
 import com.example.veylora.Repository.CampaignRecipientRepository;
+import com.example.veylora.Model.PersonalFileMap;
+import com.example.veylora.Repository.PersonalFileMapRepository;
 import com.example.veylora.Repository.PersonalFileRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,13 +32,21 @@ public class PersonalFileService {
     private final CampaignService campaignService;
     private final PersonalFileRepository repository;
     private final CampaignRecipientRepository recipientRepository;
+    private final PersonalFileMapRepository mapRepository;
 
     public PersonalFileService(CampaignService campaignService, PersonalFileRepository repository,
-                               CampaignRecipientRepository recipientRepository) {
+                               CampaignRecipientRepository recipientRepository,
+                               PersonalFileMapRepository mapRepository) {
+        this.mapRepository = mapRepository;
         this.campaignService = campaignService;
         this.repository = repository;
         this.recipientRepository = recipientRepository;
     }
+
+    /** One row of the document list: this email gets this file name. */
+    public record MapPair(String email, String file) {}
+
+    public record MapResult(int saved, int skipped) {}
 
     public record UploadResult(int added, int replaced, List<String> skipped) {}
 
@@ -126,6 +136,36 @@ public class PersonalFileService {
         return new UploadResult(counts[0], counts[1], skipped);
     }
 
+    /**
+     * Saves the document list (email + file name). It replaces any earlier list. At Start (or Check), each recipient
+     * whose email is in the list gets the uploaded file with that name; everyone else still uses the normal
+     * matching by file name.
+     */
+    @Transactional
+    public MapResult saveMapping(Long userId, Long campaignId, List<MapPair> pairs) {
+        Campaign campaign = campaignService.getCampaign(userId, campaignId);
+        if (campaign.getType() != Campaign.CampaignType.EMAIL) {
+            throw new IllegalArgumentException("Personal files are only for email campaigns");
+        }
+        requireEditable(campaign);
+        if (pairs == null || pairs.isEmpty()) throw new IllegalArgumentException("The document list is empty");
+        if (pairs.size() > MAX_FILES) throw new IllegalArgumentException("The document list is too long (max " + MAX_FILES + ")");
+        Map<String, String> unique = new LinkedHashMap<>();
+        int skipped = 0;
+        for (MapPair p : pairs) {
+            String e = p == null ? "" : norm(p.email());
+            String f = p == null || p.file() == null ? "" : norm(stripExtension(baseName(p.file().trim())));
+            if (e.isEmpty() || f.isEmpty()) { skipped++; continue; }
+            unique.put(e, f);
+        }
+        if (unique.isEmpty()) throw new IllegalArgumentException("No usable rows in the document list");
+        mapRepository.deleteAllFor(campaignId);
+        for (Map.Entry<String, String> en : unique.entrySet()) {
+            mapRepository.save(new PersonalFileMap(campaignId, en.getKey(), en.getValue()));
+        }
+        return new MapResult(unique.size(), skipped);
+    }
+
     @Transactional(readOnly = true)
     public List<PersonalFileRepository.Info> list(Long userId, Long campaignId) {
         campaignService.getCampaign(userId, campaignId);
@@ -143,6 +183,7 @@ public class PersonalFileService {
     public void deleteAll(Long userId, Long campaignId) {
         requireEditable(campaignService.getCampaign(userId, campaignId));
         repository.deleteAllFor(campaignId);
+        mapRepository.deleteAllFor(campaignId);
     }
 
     private static void requireEditable(Campaign c) {
@@ -152,7 +193,7 @@ public class PersonalFileService {
     // ---------------------------------------------------------------- matching
 
     public boolean hasFiles(Long campaignId) {
-        return repository.countByCampaign_Id(campaignId) > 0;
+        return repository.countByCampaign_Id(campaignId) > 0 || mapRepository.countByCampaignId(campaignId) > 0;
     }
 
     @Transactional
@@ -171,6 +212,9 @@ public class PersonalFileService {
         Map<String, Long> byKey = new HashMap<>();
         for (PersonalFileRepository.Info i : infos) byKey.put(i.getMatchKey(), i.getId());
 
+        Map<String, String> listed = new HashMap<>();
+        for (PersonalFileMap m : mapRepository.findByCampaignId(campaign.getId())) listed.put(m.getEmailKey(), m.getFileKey());
+
         List<CampaignRecipient> recipients = recipientRepository.findByCampaign_IdOrderByIdAsc(campaign.getId());
         Map<String, Integer> nameCount = new HashMap<>();
         for (CampaignRecipient r : recipients) {
@@ -183,9 +227,16 @@ public class PersonalFileService {
         int matched = 0;
         int missingCount = 0;
         for (CampaignRecipient r : recipients) {
-            Long fileId = byKey.get(norm(r.getEmail()));
+            Long fileId = null;
+            String wanted = listed.get(norm(r.getEmail()));
+            if (wanted != null) {
+                // The owner's document list names this person's file: use it, and never guess another.
+                fileId = byKey.get(wanted);
+            } else {
+                fileId = byKey.get(norm(r.getEmail()));
+            }
             String nameKey = norm(r.getName());
-            if (fileId == null && !nameKey.isEmpty() && nameCount.get(nameKey) == 1) fileId = byKey.get(nameKey);
+            if (fileId == null && wanted == null && !nameKey.isEmpty() && nameCount.get(nameKey) == 1) fileId = byKey.get(nameKey);
             if (apply) r.setPersonalFileId(fileId);
             if (fileId != null) {
                 matched++;
