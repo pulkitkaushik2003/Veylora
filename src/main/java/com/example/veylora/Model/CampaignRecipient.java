@@ -59,6 +59,13 @@ public class CampaignRecipient {
     /** The device task made for the latest attempt. */
     private Long deviceTaskId;
 
+    /** Exotel's id (SMS sid or call sid) for the latest attempt, when the campaign runs through Exotel. */
+    @Column(length = 80)
+    private String providerSid;
+
+    /** The sms_messages or call_logs row kept up to date for the latest Exotel attempt. */
+    private Long historyId;
+
     @Column(length = 500)
     private String lastError;
 
@@ -86,6 +93,10 @@ public class CampaignRecipient {
     public void setLastDispatchedAt(LocalDateTime lastDispatchedAt) { this.lastDispatchedAt = lastDispatchedAt; }
     public Long getDeviceTaskId() { return deviceTaskId; }
     public void setDeviceTaskId(Long deviceTaskId) { this.deviceTaskId = deviceTaskId; }
+    public String getProviderSid() { return providerSid; }
+    public void setProviderSid(String providerSid) { this.providerSid = providerSid; }
+    public Long getHistoryId() { return historyId; }
+    public void setHistoryId(Long historyId) { this.historyId = historyId; }
     public String getLastError() { return lastError; }
     public void setLastError(String lastError) { this.lastError = lastError; }
     public LocalDateTime getCreatedAt() { return createdAt; }

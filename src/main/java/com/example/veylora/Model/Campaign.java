@@ -74,6 +74,18 @@ public class Campaign {
     @Column(length = 150)
     private String createdBy;
 
+    /** Who sends SMS / places calls: PHONE (paired Android phone, also the default when empty) or EXOTEL. */
+    @Column(length = 10)
+    private String provider;
+
+    /** Exotel app (flow) that runs when a call is answered. Empty = the default app from Exotel settings. */
+    @Column(length = 30)
+    private String exotelAppId;
+
+    /** India DLT template id for SMS sent through Exotel. */
+    @Column(length = 60)
+    private String dltTemplateId;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
@@ -195,6 +207,17 @@ public class Campaign {
 
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
+
+    public String getProvider() { return provider; }
+    public void setProvider(String provider) { this.provider = provider; }
+
+    public boolean isExotel() { return "EXOTEL".equals(provider); }
+
+    public String getExotelAppId() { return exotelAppId; }
+    public void setExotelAppId(String exotelAppId) { this.exotelAppId = exotelAppId; }
+
+    public String getDltTemplateId() { return dltTemplateId; }
+    public void setDltTemplateId(String dltTemplateId) { this.dltTemplateId = dltTemplateId; }
 
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }

@@ -1,10 +1,9 @@
 package com.example.veylora.Service;
 
-
-import org.springframework.stereotype.Component;
-
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.net.URI;
@@ -37,7 +36,7 @@ public class ExotelClient {
         public AuthException(String message) { super(message); }
     }
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builder().build();
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
     // ------------------------------------------------------------------ calls
@@ -112,7 +111,7 @@ public class ExotelClient {
         JsonNode root;
         try {
             root = raw.isBlank() ? mapper.createObjectNode() : mapper.readTree(raw);
-        } catch (IOException e) {
+        } catch (RuntimeException e) { // Jackson 3 throws unchecked exceptions
             root = mapper.createObjectNode();
         }
         if (code < 200 || code >= 300) {

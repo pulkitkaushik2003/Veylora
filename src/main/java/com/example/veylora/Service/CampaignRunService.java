@@ -54,6 +54,7 @@ public class CampaignRunService {
     private final CampaignAttachmentRepository attachmentRepository;
     private final PersonalFileRepository personalFileRepository;
     private final PersonalFileService personalFileService;
+    private final ExotelCampaignService exotelService;
 
     public CampaignRunService(CampaignService campaignService,
                               CampaignRepository campaignRepository,
@@ -65,7 +66,8 @@ public class CampaignRunService {
                               EmailSenderService emailSender,
                               CampaignAttachmentRepository attachmentRepository,
                               PersonalFileRepository personalFileRepository,
-                              PersonalFileService personalFileService) {
+                              PersonalFileService personalFileService,
+                              ExotelCampaignService exotelService) {
         this.campaignService = campaignService;
         this.campaignRepository = campaignRepository;
         this.recipientRepository = recipientRepository;
@@ -77,6 +79,7 @@ public class CampaignRunService {
         this.attachmentRepository = attachmentRepository;
         this.personalFileRepository = personalFileRepository;
         this.personalFileService = personalFileService;
+        this.exotelService = exotelService;
     }
 
     public record RecipientInput(String name, String phoneNumber, String email) {}
@@ -92,6 +95,31 @@ public class CampaignRunService {
             throw new IllegalArgumentException("Message text is too long (max 1000 characters)");
         }
         campaign.setMessageBody(messageBody == null || messageBody.isBlank() ? null : messageBody);
+        return campaignRepository.save(campaign);
+    }
+
+    /**
+     * Chooses who sends: the paired phone (default) or the user's Exotel account. For Exotel, appId is the
+     * flow that runs when a call is answered and dltTemplateId is the approved DLT template of the SMS.
+     */
+    @Transactional
+    public Campaign setProvider(Long userId, Long campaignId, String provider, String appId, String dltTemplateId) {
+        Campaign campaign = campaignService.getCampaign(userId, campaignId);
+        String p = provider == null || provider.isBlank() ? "PHONE" : provider.trim().toUpperCase();
+        if (!p.equals("PHONE") && !p.equals("EXOTEL")) throw new IllegalArgumentException("Provider must be PHONE or EXOTEL");
+        if (p.equals("EXOTEL") && campaign.getType() == Campaign.CampaignType.EMAIL) {
+            throw new IllegalArgumentException("Email campaigns cannot use Exotel");
+        }
+        String app = appId == null ? "" : appId.trim();
+        if (!app.isEmpty() && !app.matches("[0-9]{1,20}")) {
+            throw new IllegalArgumentException("Exotel app id is a number, for example 1234567");
+        }
+        String dlt = dltTemplateId == null ? "" : dltTemplateId.trim();
+        if (dlt.length() > 60) throw new IllegalArgumentException("DLT template id is too long");
+        boolean exotel = p.equals("EXOTEL");
+        campaign.setProvider(exotel ? "EXOTEL" : null);
+        campaign.setExotelAppId(exotel && !app.isEmpty() ? app : null);
+        campaign.setDltTemplateId(exotel && !dlt.isEmpty() ? dlt : null);
         return campaignRepository.save(campaign);
     }
 
@@ -259,7 +287,7 @@ public class CampaignRunService {
 
         Long userId = campaign.getUser().getId();
         boolean isEmail = campaign.getType() == Campaign.CampaignType.EMAIL;
-        Long deviceId = isEmail ? null : Long.valueOf(campaign.getSelectedDeviceId());
+        Long deviceId = (isEmail || campaign.isExotel()) ? null : Long.valueOf(campaign.getSelectedDeviceId());
         int limit = ratePerMinute(campaign);
 
         long recent = recipientRepository.countByCampaign_IdAndLastDispatchedAtAfter(campaignId, now.minusSeconds(60));
@@ -268,6 +296,8 @@ public class CampaignRunService {
 
         if (allowed > 0 && isEmail) {
             dispatchEmails(campaign, userId, (int) allowed, now);
+        } else if (allowed > 0 && campaign.isExotel()) {
+            exotelService.dispatch(campaign, userId, (int) allowed, now);
         } else if (allowed > 0) {
             DeviceTask.TaskType type = campaign.getType() == Campaign.CampaignType.SMS
                     ? DeviceTask.TaskType.SMS : DeviceTask.TaskType.CALL;
@@ -404,7 +434,7 @@ public class CampaignRunService {
         return Math.max(1, Math.min(rate, MAX_RATE_PER_MINUTE));
     }
 
-    private static String render(String template, CampaignRecipient recipient) {
+    static String render(String template, CampaignRecipient recipient) {
         if (template == null) return "";
         String name = recipient.getName() == null ? "" : recipient.getName();
         boolean email = recipient.getEmail() != null;
@@ -469,6 +499,12 @@ public class CampaignRunService {
         }
 
         Long userId = campaign.getUser().getId();
+        if (campaign.isExotel()) {
+            exotelService.assertReady(userId, campaign);
+            campaign.setStatus(Campaign.CampaignStatus.RUNNING);
+            if (campaign.getStartedAt() == null) campaign.setStartedAt(LocalDateTime.now());
+            return;
+        }
         Device device;
         String selected = campaign.getSelectedDeviceId();
         if (selected == null || selected.isBlank()) {

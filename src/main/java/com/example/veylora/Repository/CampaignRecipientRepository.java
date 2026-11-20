@@ -34,4 +34,9 @@ public interface CampaignRecipientRepository extends JpaRepository<CampaignRecip
                                     @Param("status") CampaignRecipient.RecipientStatus status,
                                     @Param("now") LocalDateTime now,
                                     Pageable pageable);
+
+    /** Exotel attempts that were sent and have no final result yet. */
+    @Query("select r from CampaignRecipient r join fetch r.campaign c join fetch c.user "
+            + "where r.status = :status and r.providerSid is not null order by r.id")
+    List<CampaignRecipient> findAwaitingProvider(@Param("status") CampaignRecipient.RecipientStatus status);
 }
